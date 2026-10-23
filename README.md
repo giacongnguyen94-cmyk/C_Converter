@@ -1,5 +1,7 @@
 # C_Converter — Hạ phiên bản file CorelDRAW
 
+*Downgrade CorelDraw Version*
+
 Chuyển file `.cdr` từ **CorelDRAW 2020, 2021, 2022, 2023, 2024** xuống **CorelDRAW 2019**, không cần cài CorelDRAW
 (không dùng COM, không gọi chương trình của Corel). **2025, 2026: chế độ thử nghiệm** (xem bên dưới).
 
