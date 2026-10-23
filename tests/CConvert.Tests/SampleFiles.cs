@@ -1,0 +1,34 @@
+using CConvert.Core;
+
+namespace CConvert.Tests;
+
+/// <summary>Truy cập mẫu do tools/harness/make-samples.ps1 tạo (samples/gen, không đưa vào git).</summary>
+internal static class SampleFiles
+{
+    public static string Root
+    {
+        get
+        {
+            var dir = new DirectoryInfo(AppContext.BaseDirectory);
+            while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "C_Converter.slnx")))
+                dir = dir.Parent;
+            return Path.Combine(dir?.FullName ?? ".", "samples", "gen");
+        }
+    }
+
+    public static IEnumerable<object[]> Version25() =>
+        Directory.Exists(Root)
+            ? Directory.GetFiles(Root, "*_25.cdr").Order().Select(f => new object[] { Path.GetFileName(f) })
+            : [];
+
+    public static (RootDat Root, List<byte[]> Data) Load(string fileName)
+    {
+        var pkg = CdrPackage.Load(Path.Combine(Root, fileName));
+        var root = new RootDat(pkg.Get("content/root.dat").Data);
+        var data = System.Text.Encoding.UTF8.GetString(pkg.Get("content/dataFileList.dat").Data)
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(n => pkg.Get("content/data/" + n).Data)
+            .ToList();
+        return (root, data);
+    }
+}

@@ -1,0 +1,10 @@
+bin/
+obj/
+.vs/
+*.user
+samples/
+dumps/
+out/
+out2/
+dist/
+File mau/
