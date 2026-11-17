@@ -23,7 +23,13 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         FileGrid.ItemsSource = _items;
-        TargetBox.ItemsSource = new[] { CorelVersion.V2019 }.Select(v => $"CorelDRAW {v.Name}");
+        // Bản đích X7 → 2024.
+        TargetBox.ItemsSource = CorelVersion.Targets
+            .Select(v => new TargetOption(v, $"CorelDRAW {v.Name}"))
+            .ToList();
+        TargetBox.DisplayMemberPath = nameof(TargetOption.Label);
+        TargetBox.SelectedIndex = CorelVersion.Targets.ToList().IndexOf(CorelVersion.V2019);
+        TargetBox.SelectionChanged += (_, _) => ApplyTarget();
         // File/thư mục truyền qua dòng lệnh (vd từ "Send To" của Windows) được thêm sẵn.
         AddPaths(Environment.GetCommandLineArgs().Skip(1));
         UpdateStatus();
@@ -40,6 +46,24 @@ public partial class MainWindow : Window
         int on = 1;
         if (DwmSetWindowAttribute(hwnd, 20, ref on, sizeof(int)) != 0)
             DwmSetWindowAttribute(hwnd, 19, ref on, sizeof(int));
+    }
+
+    private CorelVersion Target => (TargetBox.SelectedItem as TargetOption)?.Version ?? CorelVersion.V2019;
+
+    /// <summary>Cập nhật theo bản đích: đuôi tên file, file nào đã ở bản đích hoặc thấp hơn thì bỏ qua.</summary>
+    private void ApplyTarget()
+    {
+        if (BesideSource is null) return;
+        var target = Target;
+        BesideSource.Content = $"Cạnh file gốc (thêm đuôi _{target.Name})";
+        foreach (var item in _items.Where(i => i.Version is not null && i.State is FileState.Pending or FileState.Skipped))
+        {
+            if (item.Version!.Vrsn <= target.Vrsn)
+                item.SetState(FileState.Skipped, $"Đã là {item.Version.Name} — không cao hơn đích");
+            else if (item.State == FileState.Skipped)
+                item.SetState(FileState.Pending, "Chờ");
+        }
+        UpdateStatus();
     }
 
     // ---------- Thêm file ----------
@@ -84,13 +108,12 @@ public partial class MainWindow : Window
             {
                 if (!known.Add(f) || f.EndsWith(".c_converter.tmp", StringComparison.OrdinalIgnoreCase)) continue;
                 var (ver, desc) = CdrInfo.Probe(f);
-                var item = new FileItem(f) { SourceVersion = ver is { IsExperimental: true } ? $"CorelDRAW {ver.Name} · thử nghiệm" : desc };
+                var item = new FileItem(f) { Version = ver, SourceVersion = ver is { IsExperimental: true } ? $"CorelDRAW {ver.Name}" : desc };
                 if (ver is null) item.SetState(FileState.Skipped, "Bỏ qua");
-                else if (ver.Vrsn <= CorelVersion.V2019.Vrsn) item.SetState(FileState.Skipped, "Đã là 2019 trở xuống");
                 _items.Add(item);
             }
         }
-        UpdateStatus();
+        ApplyTarget();
     }
 
     private void OnClear(object sender, RoutedEventArgs e)
@@ -113,7 +136,7 @@ public partial class MainWindow : Window
         var todo = _items.Where(i => i.State is FileState.Pending or FileState.Failed).ToList();
         if (todo.Count == 0)
         {
-            MessageBox.Show(this, "Không có file nào cần chuyển. Hãy thêm file .cdr bản 2020–2024 (2025/2026: thử nghiệm).", "C_Converter");
+            MessageBox.Show(this, "Không có file nào cần chuyển: hãy thêm file .cdr có phiên bản cao hơn bản đích đang chọn.", "C_Converter");
             return;
         }
         string? outDir = null;
@@ -128,7 +151,7 @@ public partial class MainWindow : Window
             Directory.CreateDirectory(outDir);
         }
 
-        var target = CorelVersion.V2019;
+        var target = Target;
         _cts = new CancellationTokenSource();
         SetRunning(true);
         Progress.Maximum = todo.Count;
@@ -147,10 +170,7 @@ public partial class MainWindow : Window
                 if (result.Success)
                 {
                     item.OutputPath = output;
-                    if (result.Experimental)
-                        item.SetState(FileState.DoneExperimental, "Xong (thử nghiệm)");
-                    else
-                        item.SetState(result.HasWarnings ? FileState.DoneWithWarnings : FileState.Done,
+                    item.SetState(result.HasWarnings ? FileState.DoneWithWarnings : FileState.Done,
                             result.HasWarnings ? "Xong (có cảnh báo)" : "Xong");
                 }
                 else
@@ -191,8 +211,8 @@ public partial class MainWindow : Window
     private void UpdateStatus()
     {
         int total = _items.Count;
-        int done = _items.Count(i => i.State is FileState.Done or FileState.DoneWithWarnings or FileState.DoneExperimental);
-        int warn = _items.Count(i => i.State is FileState.DoneWithWarnings or FileState.DoneExperimental);
+        int done = _items.Count(i => i.State is FileState.Done or FileState.DoneWithWarnings);
+        int warn = _items.Count(i => i.State is FileState.DoneWithWarnings);
         int fail = _items.Count(i => i.State == FileState.Failed);
         int skip = _items.Count(i => i.State == FileState.Skipped);
         StatTotal.Text = total.ToString();
@@ -254,12 +274,20 @@ public partial class MainWindow : Window
     }
 }
 
-public enum FileState { Pending, Running, Done, DoneWithWarnings, DoneExperimental, Failed, Skipped }
+public sealed record TargetOption(CorelVersion Version, string Label)
+{
+    public override string ToString() => Label;
+}
+
+public enum FileState { Pending, Running, Done, DoneWithWarnings, Failed, Skipped }
 
 public sealed class FileItem(string path) : INotifyPropertyChanged
 {
     public string Path { get; } = path;
     public string FileName => System.IO.Path.GetFileName(Path);
+
+    /// <summary>Phiên bản gốc của file (null = không nhận ra).</summary>
+    public CorelVersion? Version { get; init; }
 
     private string _sourceVersion = "";
     public string SourceVersion { get => _sourceVersion; set => Set(ref _sourceVersion, value); }
@@ -276,7 +304,6 @@ public sealed class FileItem(string path) : INotifyPropertyChanged
     {
         FileState.Done => Res("Success"),
         FileState.DoneWithWarnings => Res("Warning"),
-        FileState.DoneExperimental => Res("Info"),
         FileState.Failed => Res("Danger"),
         FileState.Running => Res("Info"),
         FileState.Skipped => Res("TextMuted"),

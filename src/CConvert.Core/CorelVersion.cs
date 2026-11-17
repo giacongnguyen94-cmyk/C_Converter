@@ -29,10 +29,11 @@ public sealed record CorelVersion(string Name, ushort Vrsn, char FormChar, byte 
     /// <summary>Phiên bản đã kiểm chứng, hoặc phiên bản thử nghiệm nếu mới hơn 2024.</summary>
     public static CorelVersion? Recognize(ushort vrsn) => FromVrsn(vrsn) ?? Experimental(vrsn);
 
+    // DocFormatterId: 1700 cho X7–2019, 1800 từ 2020 (đọc từ file Corel 2019 và 2024 tự Save As, 2026-11-17).
     public static readonly CorelVersion X7 = new("X7", 1700, 'H', 0x11, 0, 1700);
-    public static readonly CorelVersion X8 = new("X8", 1800, 'J', 0x12, 0, 1800);
-    public static readonly CorelVersion V2017 = new("2017", 1900, 'K', 0x13, 0, 1800);
-    public static readonly CorelVersion V2018 = new("2018", 2000, 'L', 0x14, 0, 1800);
+    public static readonly CorelVersion X8 = new("X8", 1800, 'J', 0x12, 0, 1700);
+    public static readonly CorelVersion V2017 = new("2017", 1900, 'K', 0x13, 0, 1700);
+    public static readonly CorelVersion V2018 = new("2018", 2000, 'L', 0x14, 0, 1700);
     public static readonly CorelVersion V2019 = new("2019", 2100, 'M', 0x15, 0, 1700);
     public static readonly CorelVersion V2020 = new("2020", 2200, 'N', 0x16, 0, 1800);
     public static readonly CorelVersion V2021 = new("2021", 2300, 'O', 0x17, 0, 1800);
@@ -45,11 +46,12 @@ public sealed record CorelVersion(string Name, ushort Vrsn, char FormChar, byte 
 
     public static CorelVersion? FromVrsn(ushort vrsn) => All.FirstOrDefault(v => v.Vrsn == vrsn);
 
+    /// <summary>Các phiên bản đích được hỗ trợ (X7 trở lên).</summary>
+    public static IReadOnlyList<CorelVersion> Targets => All;
+
     /// <summary>8 byte nội dung chunk fver: u16 vrsn, u16 1, u8 0, u8 minor, u8 major, u8 0.</summary>
     public byte[] FverBytes() =>
         [(byte)Vrsn, (byte)(Vrsn >> 8), 1, 0, 0, FverMinor, FverMajor, 0];
 
-    public override string ToString() => IsExperimental
-        ? $"CorelDRAW {Name} ({Vrsn}, thử nghiệm)"
-        : $"CorelDRAW {Name} ({Vrsn})";
+    public override string ToString() => $"CorelDRAW {Name} ({Vrsn})";
 }

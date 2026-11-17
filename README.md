@@ -2,8 +2,16 @@
 
 *Downgrade CorelDraw Version*
 
-Chuyển file `.cdr` từ **CorelDRAW 2020, 2021, 2022, 2023, 2024** xuống **CorelDRAW 2019**, không cần cài CorelDRAW
-(không dùng COM, không gọi chương trình của Corel). **2025, 2026: chế độ thử nghiệm** (xem bên dưới).
+Hạ phiên bản file `.cdr` xuống **CorelDRAW X7, X8, 2017, 2018, 2019, 2020 – 2024**, không cần
+cài CorelDRAW (không dùng COM, không gọi chương trình của Corel).
+
+| Bản đích | Nguồn nhận | Mức tin cậy |
+|---|---|---|
+| X7 · X8 · 2017 · 2018 | X8 → 2024 | Quy tắc trùng từng byte với file CorelDRAW tự Save As; 990 ca mở bằng CorelDRAW 2019 đều được (docs/PhatHien-03-dich-cu.md) |
+| 2019 | 2020 → 2024 | Kiểm chứng đầy đủ bằng CorelDRAW 2019 thật |
+| 2020 · 2021 · 2022 · 2023 · 2024 | bản mới hơn đích | Chỉ đổi số phiên bản như CorelDRAW 2024 tự Save As (trùng từng byte trên mẫu T01) |
+
+Nguồn **2025, 2026**: xử lý bằng suy luận, kiểm tra nghiêm ngặt (xem bên dưới).
 
 Đây là hạ phiên bản thật (ghi lại các bản ghi theo định dạng 2019), không phải sửa số phiên bản trong header,
 và cũng không phải chuyển sang định dạng khác.
@@ -11,24 +19,25 @@ và cũng không phải chuyển sang định dạng khác.
 ## Dùng
 **Giao diện:** chạy `dist/C_Converter.exe` (một file duy nhất, không cần cài .NET).
 1. Kéo thả file `.cdr` hoặc cả thư mục vào cửa sổ (hoặc bấm *Thêm file… / Thêm thư mục…*).
-2. Chọn nơi lưu: cạnh file gốc (đuôi `_2019`) hoặc một thư mục riêng.
+2. Chọn **phiên bản đích** và nơi lưu: cạnh file gốc (đuôi `_<đích>`, vd `_X7`) hoặc một thư mục riêng.
 3. Bấm **Bắt đầu**. Mỗi file có trạng thái và nhật ký riêng; *Lưu log…* để xuất toàn bộ.
 
 **Dòng lệnh:**
 ```
-dotnet src/CConvert.Cli/bin/Release/net8.0/CConvert.Cli.dll <file.cdr> [...] [--out <thư mục>]
+dotnet src/CConvert.Cli/bin/Release/net8.0/CConvert.Cli.dll <file.cdr> [...] [--to X7|X8|2017|2018|2019|2020|2021|2022|2023|2024] [--out <thư mục>]
 ```
 
 Cam kết an toàn:
 - **Không bao giờ ghi đè** file gốc hay file đã tồn tại (tự thêm ` (1)`, ` (2)`…); ghi qua file tạm rồi mới đổi tên.
 - Một file lỗi không làm dừng cả lô.
-- File đã là 2019 trở xuống, hoặc không phải CorelDRAW, được bỏ qua kèm lý do.
+- File đã ở bản đích hoặc thấp hơn, hoặc không phải CorelDRAW, được bỏ qua kèm lý do.
 
 ## Mức độ tin cậy
 Đã kiểm thử bằng CorelDRAW 2019 thật (mở file, so cấu trúc và so ảnh từng điểm với file do Corel tự "Save As 2019"):
 45 mẫu bao phủ hình cơ bản, màu RGB/CMYK, nét/mũi tên, nhóm, layer, nhiều trang, text tiếng Việt, paragraph,
 bullet, bitmap, gradient, PowerClip, lens, transparency, đổ bóng, contour, envelope, extrude, symbol, texture…
 cùng 5 file thực tế. Chi tiết: [docs/PhatHien-02-loda.md](docs/PhatHien-02-loda.md).
+Bản đích X7–2018: [docs/PhatHien-03-dich-cu.md](docs/PhatHien-03-dich-cu.md) — 188 file đáp án do CorelDRAW 2019 tự lưu.
 
 Gặp đối tượng/chunk chưa có trong mẫu đối chiếu, C_Converter vẫn chép nguyên nhưng **ghi cảnh báo cụ thể** vào nhật ký.
 
@@ -37,9 +46,10 @@ Giới hạn đã biết (đều có cảnh báo):
   Muốn giữ bóng: *Convert to Bitmap* trong 2024 trước khi hạ.
 - **Font biến thể** (vd Bahnschrift): 2019 vẽ bằng kiểu mặc định của font → nên *Convert to Curves* trước.
 - **Bullet** dùng font khác bullet mặc định: khoảng cách chữ–bullet có thể lệch vài mm.
-- Chưa hạ xuống bản thấp hơn 2019 (X7, X8, 2017, 2018), chưa đọc nguồn X6 trở về trước.
+- Chưa hỗ trợ X6 trở về trước (cả nguồn lẫn đích).
+- Không có CorelDRAW X7–2018 để mở thử trực tiếp; xem mức kiểm chứng ở trên.
 
-## Chế độ thử nghiệm: nguồn 2025 / 2026
+## Nguồn 2025 / 2026
 Chưa có mẫu 2025/2026 để kiểm chứng, nên file mới hơn 2024 được xử lý bằng suy luận:
 - Nhận theo **cấu trúc** (ZIP + `root.dat` + `fver`/`vrsn` + `mcfg` dạng 2100 như 2019–2024), không theo bảng tên.
   Cấu trúc khác → từ chối.
@@ -47,9 +57,9 @@ Chưa có mẫu 2025/2026 để kiểm chứng, nên file mới hơn 2024 đư�
   bằng `tools/analysis/json2019.py`): khóa không có trong 2019 bị bỏ và liệt kê trong nhật ký.
 - Gặp thuộc tính đối tượng, dạng text, dạng hiệu ứng hoặc chunk **chưa từng thấy** → **báo lỗi, không ghi file**
   (thay vì tạo file có thể làm CorelDRAW 2019 crash).
-- Kết quả gắn nhãn **"Xong (thử nghiệm)"** — nên mở kiểm tra bằng CorelDRAW 2019 trước khi giao.
+- Nên mở kiểm tra bằng CorelDRAW 2019 trước khi giao.
 
-Đã kiểm tra: logic thử nghiệm chạy trên 42 mẫu 2024 cho kết quả giống hệt logic đã kiểm chứng (lược đồ 2019 không
+Đã kiểm tra: logic này chạy trên 42 mẫu 2024 cho kết quả giống hệt logic đã kiểm chứng (lược đồ 2019 không
 bỏ nhầm khóa nào); file "2025/2026" mô phỏng (`tools/analysis/simulate_newer.py`) mở được bằng CorelDRAW 2019 và
 hiển thị giống hệt bản Corel tự hạ. Khi có CorelDRAW 2025 (bản dùng thử cũng được), chạy bộ kiểm thử
 `tools/harness` với `CorelDRAW.Application.26` để chuyển sang hỗ trợ chính thức.
@@ -68,7 +78,9 @@ hiển thị giống hệt bản Corel tự hạ. Khi có CorelDRAW 2025 (bản 
 
 ## Phát triển
 ```
-dotnet test tests/CConvert.Tests                                   # 167 test
+dotnet test tests/CConvert.Tests                                   # 352 test
+powershell -File tools/harness/save-older.ps1 -Files samples/gen/*_21.cdr -OutDir samples/older   # cần CorelDRAW 2019
+python tools/harness/many_cases.py <CConvert.Cli.exe> out/many                  # 990 ca kiểm chứng, rồi verify-2019.ps1 + tools/analysis/compare_many.py
 powershell -File tools/harness/run-regression.ps1 -Regenerate   # cần CorelDRAW 2024 + 2019
 dotnet publish src/CConvert.App -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -o dist
 ```

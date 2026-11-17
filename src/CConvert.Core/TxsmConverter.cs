@@ -36,7 +36,7 @@ public static class TxsmConverter
         int tail = FindListTail(d);
         if (tail < 0)
         {
-            problem("Không xác định được cấu trúc cuối của khối text — chép nguyên (CorelDRAW 2019 vẫn mở được dạng này trong thử nghiệm).");
+            problem("Không xác định được cấu trúc cuối của khối text — chép nguyên (CorelDRAW 2019 vẫn mở được dạng này).");
             return null;
         }
 

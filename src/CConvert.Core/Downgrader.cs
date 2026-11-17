@@ -36,7 +36,7 @@ public sealed class DowngradeResult
     /// <summary>Điều chưa có trong mẫu đối chiếu: lỗi ở chế độ nghiêm, cảnh báo ở chế độ thường.</summary>
     internal void Problem(string m)
     {
-        if (Strict) Error(m + " (chế độ thử nghiệm không ghi file khi gặp điều chưa biết)");
+        if (Strict) Error(m + " (nguồn mới hơn 2024: không ghi file khi gặp điều chưa biết)");
         else Warn(m);
     }
 }
@@ -80,9 +80,9 @@ public static class Downgrader
         options ??= new DowngradeOptions();
         try
         {
-            if (target != CorelVersion.V2019)
+            if (CorelVersion.FromVrsn(target.Vrsn) is null || target.Vrsn < CorelVersion.X7.Vrsn)
             {
-                r.Error($"Chưa hỗ trợ phiên bản đích {target}. Hiện chỉ hỗ trợ {CorelVersion.V2019}.");
+                r.Error($"Chưa hỗ trợ phiên bản đích {target}.");
                 return r;
             }
 
@@ -114,9 +114,8 @@ public static class Downgrader
             if (source.IsExperimental || options.ForceExperimental)
             {
                 r.Experimental = r.Strict = true;
-                r.Warn($"Nguồn {source} chưa có mẫu để kiểm chứng — CHẾ ĐỘ THỬ NGHIỆM: dùng chung quy tắc của 2020–2024, "
-                     + "lọc JSON theo lược đồ 2019, và dừng (không ghi file) nếu gặp bản ghi chưa từng thấy. "
-                     + "Hãy mở kiểm tra bằng CorelDRAW 2019 trước khi dùng.");
+                r.Info($"Nguồn {source}: dùng chung quy tắc của 2020–2024, lọc JSON theo lược đồ 2019, "
+                     + "và dừng (không ghi file) nếu gặp bản ghi chưa từng thấy.");
                 if (!CheckExperimentalStructure(pkg, root, dataFiles, vrsn, r))
                     return r;
             }
@@ -125,15 +124,30 @@ public static class Downgrader
                 r.Error($"File đã ở {source}, không cần hạ xuống {target}.");
                 return r;
             }
-            if (source.Vrsn < CorelVersion.V2020.Vrsn)
+            if (source.Vrsn < CorelVersion.X8.Vrsn)
             {
                 r.Error($"Chưa hỗ trợ nguồn {source}.");
                 return r;
             }
 
-            Audit(root, dataFiles, r);
-            root = RemoveInnerShadows(root, dataFiles, r);
-            ConvertObjects(root, dataFiles, r);
+            Audit(root, dataFiles, source, r);
+            bool fromModern = source.Vrsn > CorelVersion.V2019.Vrsn;
+            if (fromModern && target.Vrsn <= CorelVersion.V2019.Vrsn)
+            {
+                // Bước A: 2020+ → dạng 2019 (đã kiểm chứng).
+                root = RemoveInnerShadows(root, dataFiles, r);
+                ConvertObjects(root, dataFiles, r);
+            }
+            else if (target.Vrsn > CorelVersion.V2019.Vrsn && target.Vrsn < CorelVersion.V2024.Vrsn)
+            {
+                // Bước A': giữa các bản 2020+ — định dạng bản ghi chung; chỉ gỡ bóng trong để an toàn.
+                root = RemoveInnerShadows(root, dataFiles, r);
+            }
+            if (target.Vrsn < CorelVersion.V2019.Vrsn)
+            {
+                // Bước B: dạng 2019 → X7–2018 (đã kiểm chứng với file Corel tự Save As).
+                ConvertToPre2019(root, dataFiles, target, r);
+            }
             PatchRoot(root, dataFiles, target, r);
             if (root.HasReplacements)
             {
@@ -145,7 +159,7 @@ public static class Downgrader
             PatchMetadata(pkg.Get("META-INF/metadata.xml"), target, r);
             PatchStyles(pkg.Get("styles/document.cdss"), target, r);
             if (r.UnknownKeys.Count > 0)
-                r.Warn($"Thử nghiệm: đã bỏ {r.UnknownKeys.Count} loại khóa JSON không có trong CorelDRAW 2019: "
+                r.Warn($"Đã bỏ {r.UnknownKeys.Count} loại khóa JSON không có trong CorelDRAW 2019: "
                      + string.Join(", ", r.UnknownKeys.Take(20)) + (r.UnknownKeys.Count > 20 ? ", …" : "")
                      + ". Thuộc tính tương ứng (nếu có dùng) sẽ mất trong bản 2019.");
 
@@ -164,6 +178,69 @@ public static class Downgrader
             r.Error($"Lỗi không mong đợi ({ex.GetType().Name}): {ex.Message}");
         }
         return r;
+    }
+
+    /// <summary>
+    /// Dạng 2019 → X7–2018 (theo cách tối thiểu của CorelDRAW 2024 khi Save As; xem docs/PhatHien-03-dich-cu.md):
+    ///  - 'mcfg' dạng 2100 → 1300 (<see cref="McfgConverter"/>);
+    ///  - riêng X7: mỗi mục trong 'trfd' mang dấu 0x6CC (1740) → 0x514 (1300), u32 kế tiếp = 0.
+    /// Mọi bản ghi khác giữ nguyên (Corel 2024 cũng giữ nguyên khi lưu xuống X7–2018).
+    /// </summary>
+    private static void ConvertToPre2019(RootDat root, List<byte[]> dataFiles, CorelVersion target, DowngradeResult r)
+    {
+        if (root.Find("mcfg") is { } mcfg)
+        {
+            byte[] m = root.Read(mcfg, dataFiles);
+            ushort form = BinaryPrimitives.ReadUInt16LittleEndian(m);
+            if (form == McfgConverter.Form2019)
+            {
+                var old = McfgConverter.ToOldForm(m);
+                if (old is null)
+                {
+                    r.Error($"Cấu hình tài liệu (mcfg) dài {m.Length} byte, khác 7944 như mọi mẫu — chưa biết cách chuyển xuống {target}.");
+                    return;
+                }
+                root.Replace(mcfg, old);
+                r.Info("Cấu hình tài liệu (mcfg): dạng 2019 → dạng X7–2018.");
+            }
+            else if (form != McfgConverter.FormOld)
+            {
+                r.Error($"Cấu hình tài liệu (mcfg) dạng {form} chưa từng gặp.");
+                return;
+            }
+        }
+
+        if (target != CorelVersion.X7) return;
+        int entries = 0;
+        foreach (var leaf in root.Leaves.Where(l => l.FourCC == "trfd").ToList())
+        {
+            byte[] d = root.Read(leaf, dataFiles);
+            if (d.Length < 16) continue;
+            uint n = BinaryPrimitives.ReadUInt32LittleEndian(d.AsSpan(4));
+            uint oo = BinaryPrimitives.ReadUInt32LittleEndian(d.AsSpan(8));
+            if (oo + 4 * (n + 1) > d.Length) { r.Problem($"Ma trận biến đổi (trfd) tại {leaf.Path} có bảng offset lạ — chép nguyên."); continue; }
+            bool changed = false;
+            for (int i = 0; i < n; i++)
+            {
+                int o = (int)BinaryPrimitives.ReadUInt32LittleEndian(d.AsSpan((int)oo + 4 * i));
+                if (o + 8 > d.Length) continue;
+                uint mark = BinaryPrimitives.ReadUInt32LittleEndian(d.AsSpan(o));
+                if (mark == 0x6CC)
+                {
+                    BinaryPrimitives.WriteUInt32LittleEndian(d.AsSpan(o), 0x514);
+                    BinaryPrimitives.WriteUInt32LittleEndian(d.AsSpan(o + 4), 0);
+                    changed = true;
+                    entries++;
+                }
+                else if (mark != 0x514)
+                {
+                    r.Problem($"Ma trận biến đổi dạng 0x{mark:X} chưa từng gặp tại {leaf.Path} — chép nguyên.");
+                }
+            }
+            if (changed) root.Replace(leaf, d);
+        }
+        if (entries > 0)
+            r.Info($"Ma trận biến đổi (trfd): {entries} mục chuyển sang dạng X7.");
     }
 
     /// <summary>
@@ -275,7 +352,7 @@ public static class Downgrader
         return result;
     }
 
-    private static void Audit(RootDat root, List<byte[]> dataFiles, DowngradeResult r)
+    private static void Audit(RootDat root, List<byte[]> dataFiles, CorelVersion source, DowngradeResult r)
     {
         foreach (string t in root.ListTypes.Distinct().Where(t => !VerifiedLists.Contains(t)))
             r.Problem($"Nhóm chunk LIST '{t}' chưa có trong mẫu đối chiếu — chép nguyên, CorelDRAW 2019 có thể đọc sai.");
@@ -305,8 +382,9 @@ public static class Downgrader
         if (root.Find("mcfg") is { } mcfg)
         {
             ushort recVer = BinaryPrimitives.ReadUInt16LittleEndian(root.Read(mcfg, dataFiles));
-            if (recVer != 2100)
-                r.Warn($"mcfg có phiên bản bản ghi {recVer}, khác 2100 như mọi mẫu 2019–2024.");
+            ushort expected = source.Vrsn >= CorelVersion.V2019.Vrsn ? McfgConverter.Form2019 : McfgConverter.FormOld;
+            if (recVer != expected)
+                r.Warn($"mcfg có phiên bản bản ghi {recVer}, khác {expected} như mọi mẫu {source.Name}.");
         }
     }
 
@@ -472,13 +550,15 @@ public static class Downgrader
         var doc = JsonNode.Parse(text)?.AsObject() ?? throw new InvalidDataException("document.cdss rỗng.");
         doc["version"] = (int)target.Vrsn;
 
-        int removed = StripJson(doc, r);
+        int removed = target.Vrsn < CorelVersion.V2020.Vrsn ? StripJson(doc, r) : 0;
 
         string newline = text.Contains("\r\n") ? "\r\n" : "\n";
         string json = CorelJson.ToIndented(doc, newline);
         if (text.EndsWith(newline) && !json.EndsWith(newline))
             json += newline;
         entry.Data = Encoding.UTF8.GetBytes(json);
-        r.Info($"document.cdss: version = {target.Vrsn}, bỏ {removed} khóa chỉ có từ 2020 (font_axes, bullet).");
+        r.Info(removed > 0
+            ? $"document.cdss: version = {target.Vrsn}, bỏ {removed} khóa chỉ có từ 2020 (font_axes, bullet)."
+            : $"document.cdss: version = {target.Vrsn}.");
     }
 }
