@@ -11,7 +11,7 @@ $ErrorActionPreference = 'Stop'
 New-Item -ItemType Directory -Force $OutDir | Out-Null
 $OutDir = (Resolve-Path $OutDir).Path
 # -ProgId CorelDRAW.Application.25 để dựng ảnh tham chiếu của file gốc bằng 2024.
-$exeFilter = if ($ProgId -like '*.21') { '*Suite 2019*' } else { '*Suite\25\*' }
+$exeFilter = if ($ProgId -like '*.21') { '*Suite 2019*' } else { '*Suite\' + $ProgId.Split('.')[-1] + '\*' }
 function Restart-Corel {
     # Sau khi CorelDRAW gặp file hỏng nó thường kẹt ở hộp thoại ẩn → khởi động lại tiến trình.
     Get-Process CorelDRW -ErrorAction SilentlyContinue | Where-Object { $_.Path -like $exeFilter } | Stop-Process -Force

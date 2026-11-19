@@ -2,7 +2,7 @@ using System.Text;
 using CConvert.Core;
 
 // C_Converter (dòng lệnh)
-//   CConvert.Cli <file.cdr> [...] [--to X7|X8|2017|2018|2019|2020|2021|2022|2023|2024] [--out <thư mục>]
+//   CConvert.Cli <file.cdr> [...] [--to X7|X8|2017|2018|2019|2020|2021|2022|2023|2024|2025|2026] [--out <thư mục>]
 // Mặc định hạ xuống CorelDRAW 2019. Không ghi đè file gốc: kết quả là <tên>_<đích>.cdr.
 
 Console.OutputEncoding = Encoding.UTF8;
@@ -30,7 +30,7 @@ for (int i = 0; i < args.Length; i++)
 }
 if (inputs.Count == 0)
 {
-    Console.Error.WriteLine("Cách dùng: CConvert.Cli <file.cdr> [...] [--to X7|X8|2017|2018|2019|2020|2021|2022|2023|2024] [--out <thư mục>]");
+    Console.Error.WriteLine("Cách dùng: CConvert.Cli <file.cdr> [...] [--to X7|X8|2017|2018|2019|2020|2021|2022|2023|2024|2025|2026] [--out <thư mục>]");
     return 2;
 }
 

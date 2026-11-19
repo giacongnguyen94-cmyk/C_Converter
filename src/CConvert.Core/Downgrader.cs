@@ -36,7 +36,7 @@ public sealed class DowngradeResult
     /// <summary>Điều chưa có trong mẫu đối chiếu: lỗi ở chế độ nghiêm, cảnh báo ở chế độ thường.</summary>
     internal void Problem(string m)
     {
-        if (Strict) Error(m + " (nguồn mới hơn 2024: không ghi file khi gặp điều chưa biết)");
+        if (Strict) Error(m + " (nguồn mới hơn 2026: không ghi file khi gặp điều chưa biết)");
         else Warn(m);
     }
 }
@@ -48,7 +48,7 @@ public sealed record DowngradeOptions
 }
 
 /// <summary>
-/// Hạ phiên bản .cdr dạng ZIP (root.dat) từ 2020–2024 xuống 2019.
+/// Hạ phiên bản .cdr dạng ZIP (root.dat): nguồn X8–2026 → đích X7–2025 (đối chiếu file CorelDRAW 2019/2024/2026 tự Save As).
 ///
 /// Đây KHÔNG phải sửa số phiên bản: mỗi thành phần khác nhau giữa các phiên bản được chuyển theo
 /// quy tắc rút ra từ việc so sánh với file do chính CorelDRAW "Save As" (docs/PhatHien-01-T00-T01.md).
@@ -63,15 +63,21 @@ public static class Downgrader
         "fver", "vrsn", "mcfg", "pref", "ptrt", "fild", "outl", "stlt", "flgs", "spid", "bbox", "obbx", "loda", "usdn",
         "ftil", "trfd", "ttil", "arrx", "font", "txsm", "txtj", "spnd", "bmp ", "digk", "lnkt", "envd", "sblk", "symi", "syms",
         "udfe", "udta", "udid", // user data (Object Data) — kiểm chứng bằng file thật
+        "elbs", // ảnh liên kết ngoài (Link bitmap externally) — CorelDRAW 2019 tự ghi giống hệt
+        // bảng, đường kích thước/nối (ppid/ppdt), mẫu tô bitmap (bmpf) — CorelDRAW 2026 tự Save As 2019 và X7 chép nguyên
+        "ppid", "ppdt", "bmpf",
     ];
     private static readonly HashSet<string> VerifiedLists =
     [
         "doc", "filt", "filc", "otlt", "page", "gobj", "layr", "lgob", "obj", "trfl", "grp", "clpt", "lnkg", "arrt", "fntt",
         "bmpt", "symb", "syse", "syst", "sytr", "udaf", "udat", "udte",
+        "url", "elbl", // ảnh liên kết ngoài
+        "npps", "bpft",
     ];
     // 0 nhóm/trang/layer, 1 chữ nhật, 2 ellipse, 3 đường/curve, 4 artistic text, 5 bitmap, 6 paragraph text,
     // 8 extrude, 11/12/17 bản ghi layer, 15 contour, 20 polygon/star, 23 đổ bóng.
-    private static readonly HashSet<uint> VerifiedLodaTypes = [0, 1, 2, 3, 4, 5, 6, 8, 11, 12, 15, 17, 20, 23];
+    // 7 đường nối, 22 đường gióng/kích thước, 38/39 bảng (Corel 2026 Save As 2019/X7 chép nguyên, 2026-11-19).
+    private static readonly HashSet<uint> VerifiedLodaTypes = [0, 1, 2, 3, 4, 5, 6, 7, 8, 11, 12, 15, 17, 20, 22, 23, 38, 39];
 
 
     public static DowngradeResult Run(string inputPath, string outputPath, CorelVersion target, DowngradeOptions? options = null)
@@ -114,7 +120,7 @@ public static class Downgrader
             if (source.IsExperimental || options.ForceExperimental)
             {
                 r.Experimental = r.Strict = true;
-                r.Info($"Nguồn {source}: dùng chung quy tắc của 2020–2024, lọc JSON theo lược đồ 2019, "
+                r.Info($"Nguồn {source}: dùng chung quy tắc của 2020–2026, lọc JSON theo lược đồ 2019, "
                      + "và dừng (không ghi file) nếu gặp bản ghi chưa từng thấy.");
                 if (!CheckExperimentalStructure(pkg, root, dataFiles, vrsn, r))
                     return r;
@@ -138,10 +144,11 @@ public static class Downgrader
                 root = RemoveInnerShadows(root, dataFiles, r);
                 ConvertObjects(root, dataFiles, r);
             }
-            else if (target.Vrsn > CorelVersion.V2019.Vrsn && target.Vrsn < CorelVersion.V2024.Vrsn)
+            if (target.Vrsn > CorelVersion.V2019.Vrsn)
             {
-                // Bước A': giữa các bản 2020+ — định dạng bản ghi chung; chỉ gỡ bóng trong để an toàn.
-                root = RemoveInnerShadows(root, dataFiles, r);
+                // Đích 2020+: định dạng bản ghi chung (kể cả bóng trong — CorelDRAW 2026 giữ nguyên khi Save As
+                // 2020–2025); chỉ thêm style rỗng cho trang/nhóm/đối tượng như Corel.
+                ConvertObjects(root, dataFiles, r, stylesOnly: true);
             }
             if (target.Vrsn < CorelVersion.V2019.Vrsn)
             {
@@ -210,7 +217,50 @@ public static class Downgrader
             }
         }
 
+        // Tô texture (fild: [u32 1300][u32 L1][u16 11][u32 1300][u32 L2]… tại 0x1C, L1/L2 tính tới hết bản ghi):
+        // 2017 trở xuống có thêm 2 byte 0 ở cuối (L1, L2 +2). Thiếu thì CorelDRAW không mở được file
+        // (đối chiếu Corel 2026 Save As 2018 → 2017/X8/X7, 2026-11-19).
+        if (target.Vrsn <= CorelVersion.V2017.Vrsn)
+        {
+            int textures = 0;
+            foreach (var leaf in root.Leaves.Where(l => l.FourCC == "fild").ToList())
+            {
+                byte[] f = root.Read(leaf, dataFiles);
+                if (f.Length < 0x2A || BinaryPrimitives.ReadUInt32LittleEndian(f.AsSpan(0x1C)) != 1300
+                    || BinaryPrimitives.ReadUInt16LittleEndian(f.AsSpan(0x24)) != 11
+                    || BinaryPrimitives.ReadUInt32LittleEndian(f.AsSpan(0x26)) != 1300
+                    || BinaryPrimitives.ReadUInt32LittleEndian(f.AsSpan(0x20)) + 0x2C != f.Length
+                    || BinaryPrimitives.ReadUInt32LittleEndian(f.AsSpan(0x2A)) + 0x3E != f.Length)
+                    continue;
+                byte[] g = new byte[f.Length + 2];
+                f.CopyTo(g, 0);
+                BinaryPrimitives.WriteUInt32LittleEndian(g.AsSpan(0x20), (uint)(g.Length - 0x2C));
+                BinaryPrimitives.WriteUInt32LittleEndian(g.AsSpan(0x2A), (uint)(g.Length - 0x3E));
+                root.Replace(leaf, g);
+                textures++;
+            }
+            if (textures > 0)
+                r.Info($"Tô texture: {textures} bản ghi chuyển sang dạng 2017 trở xuống.");
+        }
+
         if (target != CorelVersion.X7) return;
+
+        // Bóng đổ làm mờ kiểu Gaussian (byte 0x18 = 4) chỉ có từ X8: CorelDRAW tự Save As X7 raster hóa bóng thành ảnh
+        // (đối chiếu 5 tài liệu). Ở đây đổi sang kiểu "Average" (3) gần nhất mà X7 có, giữ bóng là đối tượng vector.
+        int gaussian = 0;
+        foreach (var leaf in root.Leaves.Where(l => l.FourCC == "loda").ToList())
+        {
+            if (!LodaRecord.TryParse(root.Read(leaf, dataFiles), out var rec) || rec is null || rec.ObjType != 23) continue;
+            if (!rec.Args.TryGetValue(0xBB8, out byte[]? sh) || sh.Length <= 0x18 || sh[0x18] != 4) continue;
+            sh = (byte[])sh.Clone();
+            sh[0x18] = 3;
+            rec.Args[0xBB8] = sh;
+            root.Replace(leaf, rec.ToBytes());
+            gaussian++;
+        }
+        if (gaussian > 0)
+            r.Warn($"{gaussian} bóng đổ làm mờ kiểu Gaussian (chỉ có từ X8): đổi sang kiểu làm mềm \"Average\" của X7 — viền bóng có thể hơi khác.");
+
         int entries = 0;
         foreach (var leaf in root.Leaves.Where(l => l.FourCC == "trfd").ToList())
         {
@@ -299,6 +349,14 @@ public static class Downgrader
     /// Corel 2024 tự raster hóa khi hạ; ở đây đơn giản hóa bằng cách gỡ nhóm hiệu ứng (lnkg),
     /// mục liên kết tương ứng trong 'lnkt' và 'spnd' không còn được dùng — đối tượng gốc giữ nguyên.
     /// </summary>
+    /// <summary>
+    /// Bản ghi bóng (đối tượng loại 23, đối số 0xBB8, dạng 2200/127 byte) là bóng trong khi byte 0x73 = 1
+    /// (6/6 bóng trong; 50/50 bóng đổ phẳng/Gaussian/phối cảnh = 0 — mẫu 2024, 2026 và file thật, 2026-11-19).
+    /// Byte 0x18 là kiểu làm mềm cạnh (Gaussian = 4), KHÔNG dùng để nhận bóng trong.
+    /// </summary>
+    internal static bool IsInnerShadow(byte[] s) =>
+        s.Length == 127 && BinaryPrimitives.ReadUInt32LittleEndian(s) == 2200 && s[0x73] == 1;
+
     private static RootDat RemoveInnerShadows(RootDat root, List<byte[]> dataFiles, DowngradeResult r)
     {
         var groups = new HashSet<int>();
@@ -309,8 +367,7 @@ public static class Downgrader
             var loda = root.Leaves.FirstOrDefault(l => l.FourCC == "loda" && l.Parent >= 0
                 && root.Lists[l.Parent].Type == "lgob" && root.Lists[l.Parent].Parent == i);
             if (loda is null || !LodaRecord.TryParse(root.Read(loda, dataFiles), out var rec) || rec is null) continue;
-            if (rec.ObjType != 23 || !rec.Args.TryGetValue(0xBB8, out byte[]? s) || s.Length < 0x1C
-                || BinaryPrimitives.ReadUInt32LittleEndian(s.AsSpan(0x18)) != 4)
+            if (rec.ObjType != 23 || !rec.Args.TryGetValue(0xBB8, out byte[]? s) || !IsInnerShadow(s))
                 continue;
             groups.Add(i);
             var spnd = root.Leaves.FirstOrDefault(l => l.FourCC == "spnd" && l.Parent == i);
@@ -396,7 +453,11 @@ public static class Downgrader
     ///  2. JSON style: bỏ các khóa chỉ có từ 2020 (font_axes, bullet nhiều cấp).
     ///  3. Đổ bóng (loại 23), đối số 0xBB8: bản ghi phiên bản 2200 → 1300 (bỏ 2 trường u32).
     /// </summary>
-    private static void ConvertObjects(RootDat root, List<byte[]> dataFiles, DowngradeResult r)
+    /// <param name="stylesOnly">
+    /// Đích 2020–2025: chỉ áp dụng quy tắc 1 (CorelDRAW 2026 tự Save As xuống mọi bản thấp hơn đều ghi đủ style rỗng
+    /// cho trang/nhóm; đối chiếu 90 mẫu, 2026-11-19). Các quy tắc còn lại chỉ dành cho đích 2019 trở xuống.
+    /// </param>
+    private static void ConvertObjects(RootDat root, List<byte[]> dataFiles, DowngradeResult r, bool stylesOnly = false)
     {
         int addedStyle = 0, strippedStyle = 0, shadows = 0;
         foreach (var leaf in root.Leaves.Where(l => l.FourCC == "loda").ToList())
@@ -410,12 +471,15 @@ public static class Downgrader
 
             bool changed = false;
             bool hasStyle = rec.Args.TryGetValue(LodaRecord.StyleArg, out byte[]? style);
-            if (!hasStyle && ContainersNeedingStyle.Contains(ContainerOf(root, leaf)))
+            if (!hasStyle && NeedsStyle(ContainerOf(root, leaf)))
             {
                 rec.Args[LodaRecord.StyleArg] = LodaRecord.MakeStyle("{}");
                 addedStyle++;
                 changed = true;
                 ClearPageFlag(root, leaf, dataFiles);
+            }
+            else if (stylesOnly)
+            {
             }
             else if (hasStyle && LodaRecord.TryReadStyle(style!, out string json) && json.Length > 2)
             {
@@ -426,6 +490,12 @@ public static class Downgrader
                     strippedStyle++;
                     changed = true;
                 }
+            }
+
+            if (stylesOnly)
+            {
+                if (changed) root.Replace(leaf, rec.ToBytes());
+                continue;
             }
 
             if (r.Strict && rec.Args.TryGetValue(0xBB8, out byte[]? effect) && effect.Length >= 4
@@ -456,7 +526,7 @@ public static class Downgrader
                 root.Replace(leaf, rec.ToBytes());
         }
         int texts = 0;
-        foreach (var leaf in root.Leaves.Where(l => l.FourCC == "txsm").ToList())
+        foreach (var leaf in stylesOnly ? [] : root.Leaves.Where(l => l.FourCC == "txsm").ToList())
         {
             var converted = TxsmConverter.Convert(root.Read(leaf, dataFiles), r.Warn, r.Problem,
                 r.Strict ? node => CorelJson.StripUnknownKeys(node, r.UnknownKeys) : null);
@@ -482,8 +552,9 @@ public static class Downgrader
         return n;
     }
 
-    // Loại LIST chứa (cha của lgob) mà Corel 2019 thêm style rỗng khi thiếu. Layer ('layr') thì không.
-    private static readonly HashSet<string> ContainersNeedingStyle = ["page", "grp", "lnkg"];
+    // Corel thêm style rỗng khi thiếu cho bản ghi của trang, nhóm, nhóm hiệu ứng và cả đối tượng
+    // (vd chữ trong ô bảng); bản ghi của layer ('layr') thì không (đối chiếu Corel 2019 và 2026 Save As).
+    private static bool NeedsStyle(string container) => container is "page" or "grp" or "lnkg" or "obj";
 
     /// <summary>Loại LIST chứa đối tượng của một chunk trong lgob (vd 'page', 'obj', 'layr').</summary>
     private static string ContainerOf(RootDat root, RootDat.Leaf leaf)

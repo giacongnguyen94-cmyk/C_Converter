@@ -23,10 +23,15 @@ public sealed class CdrPackage
     public Entry Get(string name) =>
         Find(name) ?? throw new InvalidDataException($"File .cdr thiếu mục '{name}'.");
 
+    /// <summary>Mở để đọc, cho phép chương trình khác (CorelDRAW đang mở file) vẫn giữ quyền ghi.</summary>
+    public static FileStream OpenShared(string path) =>
+        new(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 1 << 16);
+
     public static CdrPackage Load(string path)
     {
         var pkg = new CdrPackage();
-        using var zip = ZipFile.OpenRead(path);
+        using var fs = OpenShared(path);
+        using var zip = new ZipArchive(fs, ZipArchiveMode.Read);
         foreach (var e in zip.Entries)
         {
             using var s = e.Open();

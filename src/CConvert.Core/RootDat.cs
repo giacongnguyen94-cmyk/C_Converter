@@ -39,9 +39,11 @@ public sealed class RootDat
 
     public Leaf? Find(string fourcc) => Leaves.FirstOrDefault(l => l.FourCC == fourcc);
 
-    /// <summary>Đọc nội dung chunk lá; dataFiles theo thứ tự trong dataFileList.</summary>
+    /// <summary>Đọc nội dung chunk lá (nội dung đã <see cref="Replace"/> nếu có); dataFiles theo thứ tự trong dataFileList.</summary>
     public byte[] Read(Leaf leaf, IReadOnlyList<byte[]> dataFiles)
     {
+        if (_replacements.Count > 0 && _replacements.TryGetValue(IndexOf(leaf), out byte[]? replaced))
+            return (byte[])replaced.Clone();
         if (leaf.Inline)
             return Bytes.AsSpan(leaf.PointerOffset + 8, (int)leaf.Length).ToArray();
         byte[] file = dataFiles[(int)leaf.FileIndex];
@@ -118,11 +120,19 @@ public sealed class RootDat
     }
 
     private readonly Dictionary<int, byte[]> _replacements = new();
+    private Dictionary<int, int>? _indexByPointer;
+
+    /// <summary>Chỉ số chunk lá trong <see cref="Leaves"/> (tra theo vị trí con trỏ — duy nhất), -1 nếu không có.</summary>
+    private int IndexOf(Leaf leaf)
+    {
+        _indexByPointer ??= Leaves.Select((l, i) => (l.PointerOffset, i)).ToDictionary(x => x.PointerOffset, x => x.i);
+        return _indexByPointer.TryGetValue(leaf.PointerOffset, out int i) && Leaves[i] == leaf ? i : -1;
+    }
 
     /// <summary>Đặt nội dung mới cho chunk lá (được áp dụng khi gọi <see cref="Rebuild"/>).</summary>
     public void Replace(Leaf leaf, byte[] content)
     {
-        int i = Leaves.IndexOf(leaf);
+        int i = IndexOf(leaf);
         if (i < 0) throw new ArgumentException("Chunk không thuộc root.dat này.", nameof(leaf));
         if (leaf.Inline && content.Length > 8)
             throw new InvalidOperationException($"Chunk inline {leaf.FourCC} không thể dài hơn 8 byte.");

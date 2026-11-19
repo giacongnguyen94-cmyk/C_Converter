@@ -11,7 +11,8 @@ public static class CdrInfo
     {
         try
         {
-            using var fs = File.OpenRead(path);
+            // Đọc được cả khi file đang mở trong CorelDRAW.
+            using var fs = CdrPackage.OpenShared(path);
             Span<byte> sig = stackalloc byte[4];
             if (fs.Read(sig) < 4) return (null, "File rỗng");
             fs.Position = 0;
@@ -43,6 +44,10 @@ public static class CdrInfo
         catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException)
         {
             return (null, "Lỗi đọc file: " + ex.Message);
+        }
+        catch (Exception ex)
+        {
+            return (null, $"File hỏng hoặc lạ ({ex.GetType().Name})");
         }
     }
 

@@ -6,8 +6,8 @@ using CConvert.Core;
 namespace CConvert.Tests;
 
 /// <summary>
-/// Chế độ thử nghiệm cho nguồn mới hơn 2024 (2025/2026 chưa có mẫu thật).
-/// File "2025" được mô phỏng từ mẫu 2024: đổi vrsn/fver/form type và chèn thuộc tính lạ.
+/// Nguồn mới hơn 2026 (suy luận + kiểm tra nghiêm ngặt; 2025/2026 đã có mẫu thật từ CorelDRAW 2026).
+/// File "2027" được mô phỏng từ mẫu 2024: đổi vrsn/fver/form type và chèn thuộc tính lạ.
 /// </summary>
 public class ExperimentalTests
 {
@@ -38,23 +38,23 @@ public class ExperimentalTests
     }
 
     [Fact]
-    public void Simulated_2025_file_converts_and_strips_unknown_keys()
+    public void Simulated_2027_file_converts_and_strips_unknown_keys()
     {
         string original = Path.Combine(SampleFiles.Root, "T40_mixed_25.cdr");
         if (!File.Exists(original)) return;
-        string fake = Simulate2025(original, cdssExtraKey: true);
+        string fake = Simulate2027(original, cdssExtraKey: true);
         string outFake = TempPath(), outOrig = TempPath();
         try
         {
             var r = Downgrader.Run(fake, outFake, CorelVersion.V2019);
             Assert.True(r.Success, string.Join("\n", r.Log));
             Assert.True(r.Experimental);
-            Assert.Contains(r.Log, l => l.Level == LogLevel.Warning && l.Message.Contains("newIn2025"));
-            Assert.Contains("2025?", r.Log[0].Message);
+            Assert.Contains(r.Log, l => l.Level == LogLevel.Warning && l.Message.Contains("newIn2027"));
+            Assert.Contains("2027?", r.Log[0].Message);
 
             Assert.True(Downgrader.Run(original, outOrig, CorelVersion.V2019).Success);
             AssertSameDrawing(outOrig, outFake);
-            Assert.DoesNotContain("newIn2025", ReadEntry(outFake, "styles/document.cdss"));
+            Assert.DoesNotContain("newIn2027", ReadEntry(outFake, "styles/document.cdss"));
         }
         finally
         {
@@ -65,11 +65,11 @@ public class ExperimentalTests
     }
 
     [Fact]
-    public void Simulated_2025_with_unknown_text_format_is_refused()
+    public void Simulated_2027_with_unknown_text_format_is_refused()
     {
         string original = Path.Combine(SampleFiles.Root, "T14_text_25.cdr");
         if (!File.Exists(original)) return;
-        string fake = Simulate2025(original, txsmVersion: 15);
+        string fake = Simulate2027(original, txsmVersion: 15);
         string output = TempPath();
         try
         {
@@ -86,11 +86,11 @@ public class ExperimentalTests
     }
 
     [Fact]
-    public void Simulated_2025_with_unknown_object_property_is_refused()
+    public void Simulated_2027_with_unknown_object_property_is_refused()
     {
         string original = Path.Combine(SampleFiles.Root, "T01_rect_25.cdr");
         if (!File.Exists(original)) return;
-        string fake = Simulate2025(original, extraLodaArg: 0x7777);
+        string fake = Simulate2027(original, extraLodaArg: 0x7777);
         string output = TempPath();
         try
         {
@@ -109,17 +109,21 @@ public class ExperimentalTests
     [Fact]
     public void Probe_recognizes_newer_versions_as_experimental()
     {
-        Assert.True(CorelVersion.Recognize(2600)!.IsExperimental);
-        Assert.Equal("2025?", CorelVersion.Recognize(2600)!.Name);
-        Assert.Equal("2026?", CorelVersion.Recognize(2700)!.Name);
+        Assert.True(CorelVersion.Recognize(2800)!.IsExperimental);
+        Assert.Equal("2027?", CorelVersion.Recognize(2800)!.Name);
+        Assert.Equal("2028?", CorelVersion.Recognize(2900)!.Name);
+        Assert.False(CorelVersion.Recognize(2600)!.IsExperimental);
+        Assert.Equal("2025", CorelVersion.Recognize(2600)!.Name);
+        Assert.False(CorelVersion.Recognize(2700)!.IsExperimental);
+        Assert.Equal("2026", CorelVersion.Recognize(2700)!.Name);
         Assert.False(CorelVersion.Recognize(2500)!.IsExperimental);
         Assert.Null(CorelVersion.Recognize(1600));
     }
 
     // ---------- tiện ích ----------
 
-    /// <summary>Tạo bản sao "CorelDRAW 2025" (vrsn 2600) của một mẫu 2024, có thể kèm thay đổi lạ.</summary>
-    private static string Simulate2025(string source, bool cdssExtraKey = false, uint? txsmVersion = null, uint? extraLodaArg = null)
+    /// <summary>Tạo bản sao "CorelDRAW 2027" (vrsn 2800) của một mẫu 2024, có thể kèm thay đổi lạ.</summary>
+    private static string Simulate2027(string source, bool cdssExtraKey = false, uint? txsmVersion = null, uint? extraLodaArg = null)
     {
         var pkg = CdrPackage.Load(source);
         var rootEntry = pkg.Get("content/root.dat");
@@ -129,10 +133,10 @@ public class ExperimentalTests
             .Select(n => pkg.Get("content/data/" + n)).ToList();
         var data = dataEntries.Select(e => e.Data).ToList();
 
-        root.FormChar = 'S';
-        byte[] fver = [0x28, 0x0A, 1, 0, 0, 0, 0x1A, 0]; // 2600
+        root.FormChar = 'V';
+        byte[] fver = [0xF0, 0x0A, 1, 0, 0, 0, 0x1C, 0]; // 2800
         root.WriteInline(root.Find("fver")!, fver);
-        root.WriteInline(root.Find("vrsn")!, [0x28, 0x0A]);
+        root.WriteInline(root.Find("vrsn")!, [0xF0, 0x0A]);
 
         if (txsmVersion is { } tv)
         {
@@ -157,12 +161,12 @@ public class ExperimentalTests
 
         var meta = pkg.Get("META-INF/metadata.xml");
         meta.Data = Encoding.UTF8.GetBytes(Encoding.UTF8.GetString(meta.Data)
-            .Replace("<cdr:CoreVersion>2500</cdr:CoreVersion>", "<cdr:CoreVersion>2600</cdr:CoreVersion>"));
+            .Replace("<cdr:CoreVersion>2500</cdr:CoreVersion>", "<cdr:CoreVersion>2800</cdr:CoreVersion>"));
         if (cdssExtraKey)
         {
             var cdss = pkg.Get("styles/document.cdss");
             cdss.Data = Encoding.UTF8.GetBytes(Encoding.UTF8.GetString(cdss.Data)
-                .Replace("\"afterParaSpacing\":", "\"newIn2025\": \"1\",\n        \"afterParaSpacing\":"));
+                .Replace("\"afterParaSpacing\":", "\"newIn2027\": \"1\",\n        \"afterParaSpacing\":"));
         }
 
         string path = TempPath();

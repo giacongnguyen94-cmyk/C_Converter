@@ -1,7 +1,8 @@
 """So sánh kết quả mở bằng CorelDRAW 2019 cho bộ ca tools/harness/many_cases.py:
 mỗi file C_Converter tạo với file đáp án CorelDRAW tự Save As (cấu trúc tài liệu + ảnh từng trang).
 
-  python compare_many.py <thư mục out của many_cases> [<thư mục verify>]
+  python compare_many.py <thư mục có manifest.json> [<thư mục verify> …]
+(nhiều thư mục verify: gộp report.json của tất cả, vd đáp án dựng ở một lần chạy, kết quả ở lần khác)
 """
 import collections
 import json
@@ -17,14 +18,20 @@ GROUPS = {
     "C": "nguồn 2018 · 2017 · X8 → bản thấp hơn",
     "D": "chuỗi 2024 → 2020/2021/2022/2023 → 2019, và 2024 → 2022 → X7",
     "E": "T00/T01 của người dùng, nguồn 2020 – 2024 → X7 … 2019",
+    "F": "ảnh TIF/PSD/PNG/JPG/BMP/GIF + xử lý bitmap (CorelDRAW 2026), nguồn 2026/2024 → 2019 · 2018 · X7",
+    "G": "42 mẫu đồ họa do CorelDRAW 2026 tạo, nguồn 2026 → 2019 · 2018 · X7",
 }
 
 if __name__ == "__main__":
     sys.stdout.reconfigure(encoding="utf-8")
     out = sys.argv[1]
-    vdir = sys.argv[2] if len(sys.argv) > 2 else os.path.join(out, "v")
+    vdirs = sys.argv[2:] or [os.path.join(out, "v")]
     manifest = json.load(open(os.path.join(out, "manifest.json"), encoding="utf-8"))
-    report = {e["file"]: e for e in json.load(open(os.path.join(vdir, "report.json"), encoding="utf-8-sig"))}
+    report, where = {}, {}
+    for vd in vdirs:
+        for e in json.load(open(os.path.join(vd, "report.json"), encoding="utf-8-sig")):
+            report[e["file"]] = e
+            where[e["file"]] = vd
     stats = collections.defaultdict(collections.Counter)
     diffs = collections.defaultdict(list)
     for c in manifest["cases"]:
@@ -49,7 +56,7 @@ if __name__ == "__main__":
             problems.append("cấu trúc: " + d)
         for page in ref.get("pages", []):
             i = page["index"]
-            pd = pixel_diff(os.path.join(vdir, f"{name}.p{i}.png"), os.path.join(vdir, f"{ref_name}.p{i}.png"))
+            pd = pixel_diff(os.path.join(where[name], f"{name}.p{i}.png"), os.path.join(where[ref_name], f"{ref_name}.p{i}.png"))
             if pd:
                 problems.append(f"trang {i}: {pd}")
         if problems:
@@ -66,7 +73,7 @@ if __name__ == "__main__":
     print()
     for k in sorted(stats):
         s = stats[k]
-        print(f"{k}  {GROUPS[k]}")
+        print(f"{k}  {GROUPS.get(k, '')}")
         print(f"   {s['tổng']} ca · mở được {s['mở được']}/{s['tổng']} · giống hệt file Corel tự lưu {s['giống hệt']}/{s['tổng']}"
               + (f" · chưa mở {s['chưa mở']}" if s["chưa mở"] else ""))
     t = sum((stats[k] for k in stats), collections.Counter())

@@ -23,7 +23,7 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         FileGrid.ItemsSource = _items;
-        // Bản đích X7 → 2024.
+        // Bản đích X7 → 2026 (nguồn mới nhất được nhận là 2026).
         TargetBox.ItemsSource = CorelVersion.Targets
             .Select(v => new TargetOption(v, $"CorelDRAW {v.Name}"))
             .ToList();

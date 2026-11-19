@@ -142,8 +142,8 @@ public class TargetTests
     }
 
     /// <summary>
-    /// Đích 2020–2023: chỉ khác số phiên bản (fver, vrsn) so với file 2024 — như Corel 2024 tự Save As.
-    /// Mọi bản ghi khác trùng từng byte (trừ khi có bóng trong: gỡ khi đích &lt; 2024).
+    /// Đích 2020–2023: so với file 2024 chỉ đổi số phiên bản (fver, vrsn) và thêm style rỗng cho trang/nhóm/đối tượng
+    /// thiếu style (loda + flgs trang) — như CorelDRAW 2026 tự Save As. Mọi bản ghi khác trùng từng byte.
     /// </summary>
     [Theory]
     [MemberData(nameof(SampleFiles.Version25), MemberType = typeof(SampleFiles))]
@@ -160,12 +160,11 @@ public class TargetTests
                 Assert.True(r.Success, string.Join(Environment.NewLine, r.Log));
                 var (dst, dstData) = Open(output);
                 Assert.Equal(target.FormChar, dst.FormChar);
-                if (r.Log.Any(l => l.ToString().Contains("bóng trong", StringComparison.OrdinalIgnoreCase))) continue;
                 Assert.Equal(src.Leaves.Select(l => l.Path), dst.Leaves.Select(l => l.Path));
                 for (int i = 0; i < src.Leaves.Count; i++)
                 {
                     var a = src.Leaves[i];
-                    if (a.FourCC is "fver" or "vrsn") continue;
+                    if (a.FourCC is "fver" or "vrsn" or "loda" or "flgs") continue;
                     Assert.True(src.Read(a, srcData).AsSpan().SequenceEqual(dst.Read(dst.Leaves[i], dstData)), $"{file} → {target}: {a.Path} đổi");
                 }
             }

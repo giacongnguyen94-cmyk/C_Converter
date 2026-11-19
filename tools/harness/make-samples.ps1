@@ -3,7 +3,9 @@
 #   <tên>_25.cdr  (bản gốc 2024)   và   <tên>_21.cdr  (CorelDRAW tự "Save As" 2019 = đáp án)
 param(
     [string]$OutDir = (Join-Path $PSScriptRoot '..\..\samples\gen'),
-    [string[]]$Only
+    [string[]]$Only,
+    [string]$ProgId = 'CorelDRAW.Application.25',
+    [int[]]$Versions = @(25, 21)
 )
 $ErrorActionPreference = 'Stop'
 New-Item -ItemType Directory -Force $OutDir | Out-Null
@@ -29,7 +31,7 @@ if (-not (Test-Path $jpg)) {
     $bmp.Save($jpg, [System.Drawing.Imaging.ImageFormat]::Jpeg); $bmp.Dispose()
 }
 
-$app = New-Object -ComObject CorelDRAW.Application.25
+$app = New-Object -ComObject $ProgId
 function Rgb($r, $g, $b) { $app.CreateRGBColor($r, $g, $b) }
 
 # Mỗi mẫu: tên => scriptblock nhận ($doc, $layer). Đơn vị: mm, gốc toạ độ góc dưới-trái trang.
@@ -90,15 +92,16 @@ $samples = [ordered]@{
 $results = @()
 foreach ($name in $samples.Keys) {
     if ($Only -and $name -notin $Only) { continue }
-    $f25 = Join-Path $OutDir "${name}_25.cdr"; $f21 = Join-Path $OutDir "${name}_21.cdr"
     try {
         $doc = $app.CreateDocument()
         $doc.Unit = 3   # cdrMillimeter
         $doc.ActivePage.SetSize(210, 297)
         & $samples[$name] $doc $doc.ActiveLayer
-        Remove-Item $f25, $f21 -ErrorAction SilentlyContinue
-        $o = $app.CreateStructSaveAsOptions(); $o.Version = 25; $doc.SaveAs($f25, $o)
-        $o = $app.CreateStructSaveAsOptions(); $o.Version = 21; $doc.SaveAs($f21, $o)
+        foreach ($v in $Versions) {
+            $f = Join-Path $OutDir "${name}_$v.cdr"
+            Remove-Item $f -ErrorAction SilentlyContinue
+            $o = $app.CreateStructSaveAsOptions(); $o.Version = $v; $doc.SaveAs($f, $o)
+        }
         $doc.Close()
         $results += "OK    $name"
     } catch {

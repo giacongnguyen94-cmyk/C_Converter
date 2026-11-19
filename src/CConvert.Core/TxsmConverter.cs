@@ -125,6 +125,41 @@ public static class TxsmConverter
         }
     }
 
+    /// <summary>Đổi thụt bullet sang cách đo 2019. Trả về false nếu không đo được (font không có trên máy).</summary>
+    private static bool AdjustBullet(JsonObject root, JsonObject para, JsonObject? original)
+    {
+        // Corel trừ độ rộng bullet bất kể bulletFirstCharIndentIncludesBullet = 0 hay 1 (đối chiếu T36 AIGDT, X09 Times).
+        if (original is null || !original.ContainsKey("bulletFirstCharIndentIncludesBullet")) return false;
+        if (!long.TryParse(Str(para, "bulletFirstCharIndent"), out long indent)) return false;
+        if (para["bulletFont"] is not JsonObject bf) return false;
+        if (Str(original, "bulletInheritFont") == "1"
+            && root["character"] is JsonObject ch && (ch["latin"] ?? ch["RTL"]) is JsonObject cf)
+        {
+            foreach (string k in new[] { "font", "size", "version" })
+                if (Str(cf, k) is { } v) bf[k] = v;
+            if (Str(cf, "weight") is { } w && w != "64") CorelJson.InsertSorted(bf, "weight", JsonValue.Create(w)!);
+        }
+        string? font = Str(bf, "font");
+        if (font is null || !long.TryParse(Str(bf, "size"), out long size)) return false;
+        int cp = BulletCodePoint(Str(para, "bulletChar"));
+        if (cp <= 0) return false;
+        bool bold = Str(bf, "weight") is { } wt && int.TryParse(wt, out int wi) && wi >= 4096;
+        bool italic = Str(bf, "italic") == "1";
+        double? em = FontCatalog.AdvanceEm(font, bold, italic, cp);
+        if (em is null) return false;
+        // Hệ số 1,0002: Corel làm tròn độ rộng theo cách riêng (sai lệch còn lại dưới 1 micromet).
+        para["bulletFirstCharIndent"] = (indent - (long)Math.Round(em.Value * size * 1.0002)).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        return true;
+    }
+
+    /// <summary>bulletChar là 4 byte hex little-endian (vd "22200000" = U+2022).</summary>
+    private static int BulletCodePoint(string? hex)
+    {
+        if (hex is not { Length: 8 }) return -1;
+        try { return (int)BinaryPrimitives.ReadUInt32LittleEndian(System.Convert.FromHexString(hex)); }
+        catch (FormatException) { return -1; }
+    }
+
     private static string? Str(JsonObject o, string key) =>
         o[key] is JsonValue v && v.TryGetValue(out string? s) ? s : null;
 
@@ -132,24 +167,24 @@ public static class TxsmConverter
     {
         var node = JsonNode.Parse(block);
         if (node is not JsonObject root) return null;
+        // Giữ bản sao trước khi bỏ khóa 2020+ (cần bulletInheritFont / bulletFirstCharIndentIncludesBullet).
+        var originalPara = root["paragraph"]?.DeepClone() as JsonObject;
         int changes = CorelJson.StripPost2019Keys(root, warn);
         if (extraStrip is not null) changes += extraStrip(root);
 
         if (root["paragraph"] is JsonObject para)
         {
-            // 2020+ đo khoảng thụt dòng đầu tính cả bullet; 2019 đo sau bullet. Với bullet mặc định
-            // ('•' Arial 12pt, thụt 6,35 mm) giá trị 2019 đã biết chính xác; trường hợp khác cần đo font.
-            bool known = false;
-            if (Str(para, "bulletFirstCharIndent") == "63500" && Str(para, "bulletChar") == "22200000"
-                && para["bulletFont"] is JsonObject bf && Str(bf, "font") == "Arial" && Str(bf, "size") == "42333")
-            {
-                para["bulletFirstCharIndent"] = DefaultBulletFirstCharIndent;
-                known = true;
-                changes++;
-            }
+            // 2020+ đo khoảng thụt dòng đầu tính cả bullet; 2019 đo sau bullet:
+            //   thụt 2019 = thụt 2020 - độ rộng ký tự bullet x cỡ font bullet
+            // (vd bullet Arial 12pt: 63500 - 14824 = 48676; Times đậm 28pt: 63500 - 34589 = 28911; đối chiếu
+            // Corel 2019/2026 Save As). Bullet "theo font chữ" (bulletInheritFont = 1, 2019 không có) -> Corel ghi
+            // font/cỡ của chữ vào bulletFont.
+            bool known = AdjustBullet(root, para, originalPara);
+            if (known) changes++;
             if (Str(para, "bulletOn") == "1" && !known)
-                warn("Văn bản có danh sách bullet: CorelDRAW 2019 tính khoảng cách chữ–bullet khác 2020+, chữ có thể lệch vài mm so với bản gốc.");
-            if (para.Count > 0 && !para.ContainsKey("bulletFirstCharIndent"))
+                warn("Văn bản có danh sách bullet dùng font không tìm thấy trên máy: CorelDRAW 2019 tính khoảng cách chữ–bullet khác 2020+, chữ có thể lệch vài mm so với bản gốc.");
+            // Kể cả khối rỗng (chữ của đường kích thước, ô bảng…): Corel luôn ghi giá trị mặc định 2019.
+            if (!para.ContainsKey("bulletFirstCharIndent"))
             {
                 CorelJson.InsertSorted(para, "bulletFirstCharIndent", JsonValue.Create(DefaultBulletFirstCharIndent)!);
                 changes++;

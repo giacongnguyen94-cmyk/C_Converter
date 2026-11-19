@@ -11,18 +11,18 @@ namespace CConvert.Core;
 /// <param name="DocFormatterId">inTxt:DocFormatterId trong META-INF/metadata.xml.</param>
 public sealed record CorelVersion(string Name, ushort Vrsn, char FormChar, byte FverMajor, byte FverMinor, int DocFormatterId)
 {
-    /// <summary>Phiên bản mới hơn 2024 chưa có mẫu để kiểm chứng (chế độ thử nghiệm).</summary>
+    /// <summary>Phiên bản mới hơn 2026 chưa có mẫu để kiểm chứng (suy luận + kiểm tra nghiêm ngặt).</summary>
     public bool IsExperimental { get; init; }
 
     /// <summary>
-    /// Nguồn mới hơn 2024 (vrsn &gt; 2500). Tên sản phẩm là ngoại suy từ quy luật 17→X7 … 25→2024
-    /// (GIẢ ĐỊNH: 26 = 2025, 27 = 2026), chỉ dùng để hiển thị.
+    /// Nguồn mới hơn 2026 (vrsn &gt; 2700). Tên sản phẩm là ngoại suy từ quy luật 25→2024, 26→2025, 27→2026
+    /// (GIẢ ĐỊNH cho 28 trở đi), chỉ dùng để hiển thị.
     /// </summary>
     public static CorelVersion? Experimental(ushort vrsn)
     {
-        if (vrsn <= V2024.Vrsn || vrsn >= 4000) return null;
+        if (vrsn <= V2026.Vrsn || vrsn >= 4000) return null;
         int major = vrsn / 100;
-        string name = major is >= 26 and <= 40 ? $"{major + 1999}?" : $"vrsn {vrsn}";
+        string name = major is >= 28 and <= 40 ? $"{major + 1999}?" : $"vrsn {vrsn}";
         return new CorelVersion(name, vrsn, '?', (byte)major, (byte)(vrsn % 100 / 10), 0) { IsExperimental = true };
     }
 
@@ -40,9 +40,12 @@ public sealed record CorelVersion(string Name, ushort Vrsn, char FormChar, byte 
     public static readonly CorelVersion V2022 = new("2022", 2400, 'P', 0x18, 0, 1800);
     public static readonly CorelVersion V2023 = new("2023", 2430, 'Q', 0x18, 3, 1800);
     public static readonly CorelVersion V2024 = new("2024", 2500, 'R', 0x19, 0, 1800);
+    // 2025/2026: đọc từ file CorelDRAW 2026 tự Save As (2026-11-19).
+    public static readonly CorelVersion V2025 = new("2025", 2600, 'T', 0x1A, 0, 1800);
+    public static readonly CorelVersion V2026 = new("2026", 2700, 'U', 0x1B, 0, 1800);
 
     public static IReadOnlyList<CorelVersion> All { get; } =
-        [X7, X8, V2017, V2018, V2019, V2020, V2021, V2022, V2023, V2024];
+        [X7, X8, V2017, V2018, V2019, V2020, V2021, V2022, V2023, V2024, V2025, V2026];
 
     public static CorelVersion? FromVrsn(ushort vrsn) => All.FirstOrDefault(v => v.Vrsn == vrsn);
 
